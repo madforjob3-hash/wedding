@@ -8,12 +8,10 @@ dotenv.config();
 class GeminiAnalyzer {
   constructor() {
     this.genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    // v1beta API 사용 (tools, systemInstruction 지원)
-    this.model = this.genAI.getGenerativeModel({ 
-      model: 'gemini-1.5-pro',
-      tools: [{ googleSearchRetrieval: {} }]
-    });
-    // 임베딩 모델은 일단 사용 안 함 (API 키 문제)
+    // REST API 직접 호출 방식 사용 (v1beta 지원)
+    this.apiKey = process.env.GEMINI_API_KEY;
+    this.apiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent';
+    // 임베딩 모델은 일단 사용 안 함
     this.embeddingModel = null;
   }
 
@@ -149,12 +147,29 @@ ${review.contentMd.substring(0, 6000)}
 - 반드시 유효한 JSON만 응답`;
 
     try {
-      // SDK 방식: systemInstruction을 프롬프트에 포함
-      const fullPrompt = `${systemInstruction}\n\n${prompt}`;
+      // REST API 직접 호출 (v1beta 지원)
+      const response = await fetch(`${this.apiUrl}?key=${this.apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          systemInstruction: { parts: [{ text: systemInstruction }] },
+          tools: [{ googleSearchRetrieval: {} }],
+          generationConfig: { responseMimeType: 'application/json' }
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Gemini API 호출 실패: ${response.status} - ${errorText}`);
+      }
+
+      const result = await response.json();
+      let text = result.candidates?.[0]?.content?.parts?.[0]?.text;
       
-      const result = await this.model.generateContent(fullPrompt);
-      const response = await result.response;
-      let text = response.text();
+      if (!text) {
+        throw new Error('AI 응답이 없습니다.');
+      }
 
       // JSON 추출 (마크다운 코드 블록 제거)
       text = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
@@ -205,11 +220,31 @@ ${review.contentMd.substring(0, 6000)}
       if (!queryEmbedding) {
         console.log('⚠️  Embedding unavailable, using keyword-based search');
         const queryLower = query.toLowerCase();
+        const queryWords = queryLower.split(/\s+/).filter(w => w.length > 1);
+        
         const keywordMatches = reviews.filter(r => {
           const title = (r.title || '').toLowerCase();
-          const content = (r.contentMd || '').toLowerCase();
-          return title.includes(queryLower) || content.includes(queryLower);
+          const content = (r.contentMd || '').substring(0, 1000).toLowerCase(); // 처음 1000자만
+          
+          // 키워드 중 하나라도 포함되면 매칭
+          return queryWords.some(word => 
+            title.includes(word) || content.includes(word)
+          );
         });
+        
+        // 매칭 개수로 정렬
+        keywordMatches.sort((a, b) => {
+          const aTitle = (a.title || '').toLowerCase();
+          const aContent = (a.contentMd || '').substring(0, 1000).toLowerCase();
+          const bTitle = (b.title || '').toLowerCase();
+          const bContent = (b.contentMd || '').substring(0, 1000).toLowerCase();
+          
+          const aMatches = queryWords.filter(w => aTitle.includes(w) || aContent.includes(w)).length;
+          const bMatches = queryWords.filter(w => bTitle.includes(w) || bContent.includes(w)).length;
+          
+          return bMatches - aMatches;
+        });
+        
         return keywordMatches.slice(0, limitNum);
       }
 
@@ -285,9 +320,28 @@ ${context}
 
 위 정보를 바탕으로 답변해주세요.`;
 
-      const result = await this.model.generateContent(`${systemPrompt}\n\n${userPrompt}`);
-      const response = await result.response;
-      const answer = response.text();
+      // REST API 직접 호출
+      const response = await fetch(`${this.apiUrl}?key=${this.apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }] }],
+          tools: [{ googleSearchRetrieval: {} }],
+          generationConfig: { responseMimeType: 'text/plain' }
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Gemini API 호출 실패: ${response.status} - ${errorText}`);
+      }
+
+      const result = await response.json();
+      const answer = result.candidates?.[0]?.content?.parts?.[0]?.text;
+      
+      if (!answer) {
+        throw new Error('AI 응답이 없습니다.');
+      }
 
       // 출처 정보 구성
       const sources = analyses.map((a, idx) => ({
