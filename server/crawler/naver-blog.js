@@ -33,13 +33,27 @@ class NaverBlogCrawler {
 
         const $ = cheerio.load(response.data);
         
-        $('.total_wrap .total_area').each((i, elem) => {
+        // 최신 네이버 블로그 검색 결과 구조 (2025년)
+        // 여러 선택자 시도
+        $('.api_subject_bx, .total_wrap, .sh_blog_top, .blog_sect').each((i, elem) => {
           const $elem = $(elem);
-          const title = $elem.find('.title_link').text().trim();
-          const link = $elem.find('.title_link').attr('href');
-          const desc = $elem.find('.total_dsc').text().trim();
-          const author = $elem.find('.sub_txt').first().text().trim();
-          const date = $elem.find('.sub_time').text().trim();
+          
+          // 제목과 링크 찾기 (여러 패턴 시도)
+          let title = $elem.find('.api_txt_lines, .title_link, .sh_blog_title, a.title').text().trim();
+          let link = $elem.find('.api_txt_lines, .title_link, .sh_blog_title, a.title').attr('href') || 
+                     $elem.find('a').first().attr('href');
+          
+          // 링크가 없으면 다음 요소로
+          if (!link) return;
+          
+          // 상대 경로를 절대 경로로 변환
+          if (link.startsWith('/')) {
+            link = 'https://search.naver.com' + link;
+          }
+          
+          const desc = $elem.find('.api_txt_lines.dsc_txt, .total_dsc, .sh_blog_passage').text().trim();
+          const author = $elem.find('.sub_txt, .sh_blog_name, .sub_info').first().text().trim();
+          const date = $elem.find('.sub_time, .sh_blog_date').text().trim();
 
           if (link && title) {
             results.push({
@@ -49,6 +63,27 @@ class NaverBlogCrawler {
             });
           }
         });
+        
+        // 결과가 없으면 더 넓은 범위로 검색
+        if (results.length === 0) {
+          $('a[href*="blog.naver.com"]').each((i, elem) => {
+            const $elem = $(elem);
+            const link = $elem.attr('href');
+            const title = $elem.text().trim();
+            
+            if (link && title && title.length > 5) {
+              results.push({
+                title, 
+                url: link.startsWith('/') ? 'https://search.naver.com' + link : link,
+                description: '',
+                author: '',
+                publishedAt: null,
+                platform: 'blog',
+                domain: 'blog.naver.com'
+              });
+            }
+          });
+        }
 
         if (results.length >= maxResults) break;
       }
@@ -115,7 +150,9 @@ class NaverBlogCrawler {
       }
 
       const response = await axios.get(actualUrl, {
-        headers: { 'User-Agent': process.env.USER_AGENT },
+        headers: { 
+          'User-Agent': process.env.USER_AGENT || 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        },
         timeout: 15000
       });
 
@@ -126,12 +163,20 @@ class NaverBlogCrawler {
       let publishedAt = null;
       let author = '';
 
+      // 여러 패턴 시도
       if ($('.se-main-container').length > 0) {
         content = $('.se-main-container').html();
-        title = $('.se-title-text').text().trim();
+        title = $('.se-title-text').text().trim() || $('h3.se-title-text').text().trim();
       } else if ($('#postViewArea').length > 0) {
         content = $('#postViewArea').html();
-        title = $('.pcol1').first().text().trim();
+        title = $('.pcol1').first().text().trim() || $('h3').first().text().trim();
+      } else if ($('.post-view').length > 0) {
+        content = $('.post-view').html();
+        title = $('h3, .title').first().text().trim();
+      } else {
+        // 최후의 수단: body 전체에서 본문 추출
+        content = $('body').html();
+        title = $('title').text().trim() || '제목 없음';
       }
 
       publishedAt = $('.se_publishDate').text().trim() || 

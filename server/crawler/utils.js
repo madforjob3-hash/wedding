@@ -83,9 +83,15 @@ class CrawlerUtils {
     if (review.hasImages) score += 0.1;
     if (review.isSponsored) score -= 0.2;
 
-    const daysSincePublished = (Date.now() - new Date(review.publishedAt)) / (1000 * 60 * 60 * 24);
-    if (daysSincePublished <= 30) score += 0.2;
-    else if (daysSincePublished <= 90) score += 0.1;
+    // publishedAt이 없으면 기본값 사용
+    if (review.publishedAt) {
+      const daysSincePublished = (Date.now() - new Date(review.publishedAt)) / (1000 * 60 * 60 * 24);
+      if (daysSincePublished <= 30) score += 0.2;
+      else if (daysSincePublished <= 90) score += 0.1;
+    } else {
+      // 날짜 없으면 최신으로 간주
+      score += 0.1;
+    }
 
     const platformBonus = {
       'wed21': 0.1, 'wef': 0.1,

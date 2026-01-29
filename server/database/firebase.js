@@ -1,38 +1,26 @@
-import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, doc, setDoc, getDoc, getDocs, query, where, orderBy, limit, updateDoc, deleteDoc, Timestamp } from 'firebase/firestore';
 import admin from 'firebase-admin';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Firebase Client SDK 초기화 (프론트엔드용)
-const firebaseConfig = {
-  apiKey: process.env.FIREBASE_API_KEY,
-  authDomain: process.env.FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.FIREBASE_PROJECT_ID,
-  storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.FIREBASE_APP_ID
-};
-
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-
 // Firebase Admin SDK 초기화 (서버용)
 let adminDb;
 try {
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId: process.env.FIREBASE_ADMIN_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, '\n')
-    })
-  });
+  // 이미 초기화되어 있으면 스킵
+  if (!admin.apps.length) {
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId: process.env.FIREBASE_ADMIN_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL,
+        privateKey: process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, '\n')
+      })
+    });
+  }
   adminDb = admin.firestore();
   console.log('✅ Firebase Admin initialized');
 } catch (error) {
-  console.warn('⚠️  Firebase Admin initialization failed, using client SDK only');
-  adminDb = db;
+  console.error('❌ Firebase Admin initialization failed:', error.message);
+  throw error; // Admin SDK는 필수이므로 실패 시 에러 발생
 }
 
 // Firestore 컬렉션 참조
@@ -49,188 +37,238 @@ const collections = {
  */
 class FirestoreHelper {
   constructor() {
+    if (!adminDb) {
+      throw new Error('Firebase Admin SDK not initialized');
+    }
     this.db = adminDb;
   }
 
   // 리뷰 저장
   async saveReview(reviewData) {
-    const docRef = doc(this.db, collections.reviews, reviewData.id);
-    await setDoc(docRef, {
-      ...reviewData,
-      createdAt: Timestamp.now(),
-      updatedAt: Timestamp.now()
-    });
+    if (!this.db) {
+      throw new Error('Firestore not initialized');
+    }
+    const docRef = this.db.collection(collections.reviews).doc(reviewData.id);
+    
+    // undefined 값 제거 및 데이터 정리
+    const cleanData = {};
+    for (const [key, value] of Object.entries(reviewData)) {
+      if (value !== undefined && value !== null) {
+        cleanData[key] = value;
+      }
+    }
+    
+    // publishedAt이 Date 객체면 Timestamp로 변환
+    if (cleanData.publishedAt instanceof Date) {
+      cleanData.publishedAt = admin.firestore.Timestamp.fromDate(cleanData.publishedAt);
+    }
+    
+    // 타임스탬프 추가
+    cleanData.createdAt = admin.firestore.FieldValue.serverTimestamp();
+    cleanData.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+    
+    await docRef.set(cleanData);
     return reviewData.id;
   }
 
   // 리뷰 조회
   async getReview(reviewId) {
-    const docRef = doc(this.db, collections.reviews, reviewId);
-    const docSnap = await getDoc(docRef);
-    return docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null;
+    if (!this.db) {
+      throw new Error('Firestore not initialized');
+    }
+    const docRef = this.db.collection(collections.reviews).doc(reviewId);
+    const docSnap = await docRef.get();
+    return docSnap.exists ? { id: docSnap.id, ...docSnap.data() } : null;
   }
 
   // 리뷰 목록 조회
   async getReviews(filters = {}) {
-    let q = collection(this.db, collections.reviews);
+    if (!this.db) {
+      throw new Error('Firestore not initialized');
+    }
+    let q = this.db.collection(collections.reviews);
     
     // 필터 적용
-    const constraints = [];
-    
     if (filters.platform) {
-      constraints.push(where('sourcePlatform', '==', filters.platform));
+      q = q.where('sourcePlatform', '==', filters.platform);
     }
     
     if (filters.minTrustScore) {
-      constraints.push(where('trustScore', '>=', filters.minTrustScore));
+      q = q.where('trustScore', '>=', filters.minTrustScore);
     }
 
     if (filters.dateFrom) {
-      constraints.push(where('publishedAt', '>=', Timestamp.fromDate(new Date(filters.dateFrom))));
+      q = q.where('publishedAt', '>=', admin.firestore.Timestamp.fromDate(new Date(filters.dateFrom)));
     }
 
     if (filters.dateTo) {
-      constraints.push(where('publishedAt', '<=', Timestamp.fromDate(new Date(filters.dateTo))));
+      q = q.where('publishedAt', '<=', admin.firestore.Timestamp.fromDate(new Date(filters.dateTo)));
     }
 
-    // 정렬
-    constraints.push(orderBy('publishedAt', 'desc'));
+    // 정렬 (publishedAt 필드가 없을 수 있으므로 조건부)
+    // Firestore는 where와 orderBy가 다른 필드일 때 인덱스 필요
+    // 일단 limit만 적용하고 클라이언트에서 정렬
     
     // 제한
     if (filters.limit) {
-      constraints.push(limit(filters.limit));
+      q = q.limit(filters.limit);
     }
-
-    q = query(q, ...constraints);
     
-    const querySnapshot = await getDocs(q);
+    const querySnapshot = await q.get();
     return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
   }
 
   // URL로 리뷰 검색
   async getReviewByUrl(url) {
-    const q = query(
-      collection(this.db, collections.reviews),
-      where('sourceUrl', '==', url),
-      limit(1)
-    );
-    const querySnapshot = await getDocs(q);
+    if (!this.db) {
+      throw new Error('Firestore not initialized');
+    }
+    const q = this.db.collection(collections.reviews)
+      .where('sourceUrl', '==', url)
+      .limit(1);
+    const querySnapshot = await q.get();
     return querySnapshot.empty ? null : { id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() };
   }
 
   // 분석 저장
   async saveAnalysis(analysisData) {
-    const docRef = doc(this.db, collections.analysis, analysisData.id);
-    await setDoc(docRef, {
+    if (!this.db) {
+      throw new Error('Firestore not initialized');
+    }
+    const docRef = this.db.collection(collections.analysis).doc(analysisData.id);
+    await docRef.set({
       ...analysisData,
-      createdAt: Timestamp.now()
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
     });
     return analysisData.id;
   }
 
   // 리뷰 ID로 분석 조회
   async getAnalysisByReviewId(reviewId) {
-    const q = query(
-      collection(this.db, collections.analysis),
-      where('reviewId', '==', reviewId),
-      limit(1)
-    );
-    const querySnapshot = await getDocs(q);
+    if (!this.db) {
+      throw new Error('Firestore not initialized');
+    }
+    const q = this.db.collection(collections.analysis)
+      .where('reviewId', '==', reviewId)
+      .limit(1);
+    const querySnapshot = await q.get();
     return querySnapshot.empty ? null : { id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() };
   }
 
   // 웨딩홀별 분석 조회
   async getAnalysesByHall(hallName, limitNum = 20) {
-    const q = query(
-      collection(this.db, collections.analysis),
-      where('hallName', '==', hallName),
-      orderBy('analyzedAt', 'desc'),
-      limit(limitNum)
-    );
-    const querySnapshot = await getDocs(q);
+    if (!this.db) {
+      throw new Error('Firestore not initialized');
+    }
+    const q = this.db.collection(collections.analysis)
+      .where('hallName', '==', hallName)
+      .orderBy('analyzedAt', 'desc')
+      .limit(limitNum);
+    const querySnapshot = await q.get();
     return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
   }
 
   // 웨딩홀 캐시 저장/업데이트
   async saveHallCache(hallName, cacheData) {
-    const docRef = doc(this.db, collections.halls, hallName);
-    await setDoc(docRef, {
+    if (!this.db) {
+      throw new Error('Firestore not initialized');
+    }
+    const docRef = this.db.collection(collections.halls).doc(hallName);
+    await docRef.set({
       ...cacheData,
       hallName,
-      lastUpdated: Timestamp.now()
+      lastUpdated: admin.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
   }
 
   // 웨딩홀 캐시 조회
   async getHallCache(hallName) {
-    const docRef = doc(this.db, collections.halls, hallName);
-    const docSnap = await getDoc(docRef);
-    return docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null;
+    if (!this.db) {
+      throw new Error('Firestore not initialized');
+    }
+    const docRef = this.db.collection(collections.halls).doc(hallName);
+    const docSnap = await docRef.get();
+    return docSnap.exists ? { id: docSnap.id, ...docSnap.data() } : null;
   }
 
   // 웨딩홀 목록 조회
   async getHalls(filters = {}) {
-    let q = collection(this.db, collections.halls);
-    const constraints = [];
+    if (!this.db) {
+      throw new Error('Firestore not initialized');
+    }
+    let q = this.db.collection(collections.halls);
 
     if (filters.region) {
-      constraints.push(where('region', '==', filters.region));
+      q = q.where('region', '==', filters.region);
     }
 
     if (filters.minReviews) {
-      constraints.push(where('totalReviews', '>=', filters.minReviews));
+      q = q.where('totalReviews', '>=', filters.minReviews);
     }
 
     // 정렬
     const sortField = filters.sort === 'trust' ? 'avgTrustScore' : 
                      filters.sort === 'recent' ? 'lastReviewedAt' : 
                      'totalReviews';
-    constraints.push(orderBy(sortField, 'desc'));
-    constraints.push(limit(50));
+    q = q.orderBy(sortField, 'desc').limit(50);
 
-    q = query(q, ...constraints);
-    const querySnapshot = await getDocs(q);
+    const querySnapshot = await q.get();
     return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
   }
 
   // 크롤링 작업 저장
   async saveCrawlJob(jobData) {
-    const docRef = doc(this.db, collections.crawlJobs, jobData.id);
-    await setDoc(docRef, {
+    if (!this.db) {
+      throw new Error('Firestore not initialized');
+    }
+    const docRef = this.db.collection(collections.crawlJobs).doc(jobData.id);
+    await docRef.set({
       ...jobData,
-      createdAt: Timestamp.now()
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
     });
     return jobData.id;
   }
 
   // 크롤링 작업 업데이트
   async updateCrawlJob(jobId, updates) {
-    const docRef = doc(this.db, collections.crawlJobs, jobId);
-    await updateDoc(docRef, updates);
+    if (!this.db) {
+      throw new Error('Firestore not initialized');
+    }
+    const docRef = this.db.collection(collections.crawlJobs).doc(jobId);
+    await docRef.update(updates);
   }
 
   // 크롤링 작업 조회
   async getCrawlJob(jobId) {
-    const docRef = doc(this.db, collections.crawlJobs, jobId);
-    const docSnap = await getDoc(docRef);
-    return docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null;
+    if (!this.db) {
+      throw new Error('Firestore not initialized');
+    }
+    const docRef = this.db.collection(collections.crawlJobs).doc(jobId);
+    const docSnap = await docRef.get();
+    return docSnap.exists ? { id: docSnap.id, ...docSnap.data() } : null;
   }
 
   // 검색 로그 저장
   async saveSearchLog(logData) {
-    const docRef = doc(collection(this.db, collections.searchLogs));
-    await setDoc(docRef, {
+    if (!this.db) {
+      throw new Error('Firestore not initialized');
+    }
+    const docRef = this.db.collection(collections.searchLogs).doc();
+    await docRef.set({
       ...logData,
-      createdAt: Timestamp.now()
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
     });
   }
 
   // 통계 조회
   async getStats() {
+    if (!this.db) {
+      throw new Error('Firestore not initialized');
+    }
     const [reviewsSnap, hallsSnap, jobsSnap] = await Promise.all([
-      getDocs(collection(this.db, collections.reviews)),
-      getDocs(collection(this.db, collections.halls)),
-      getDocs(query(collection(this.db, collections.crawlJobs), where('status', '==', 'completed')))
+      this.db.collection(collections.reviews).get(),
+      this.db.collection(collections.halls).get(),
+      this.db.collection(collections.crawlJobs).where('status', '==', 'completed').get()
     ]);
 
     // 평균 신뢰도 계산
@@ -248,5 +286,5 @@ class FirestoreHelper {
   }
 }
 
-export { db, adminDb, collections, FirestoreHelper };
+export { adminDb, collections, FirestoreHelper };
 export default new FirestoreHelper();

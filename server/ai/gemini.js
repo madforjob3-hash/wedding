@@ -8,20 +8,29 @@ dotenv.config();
 class GeminiAnalyzer {
   constructor() {
     this.genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    this.model = this.genAI.getGenerativeModel({ model: 'gemini-pro' });
-    this.embeddingModel = this.genAI.getGenerativeModel({ model: 'embedding-001' });
+    // v1beta API 사용 (tools, systemInstruction 지원)
+    this.model = this.genAI.getGenerativeModel({ 
+      model: 'gemini-1.5-pro',
+      tools: [{ googleSearchRetrieval: {} }]
+    });
+    // 임베딩 모델은 일단 사용 안 함 (API 키 문제)
+    this.embeddingModel = null;
   }
 
   /**
    * 텍스트를 임베딩 벡터로 변환
    */
   async createEmbedding(text) {
+    // 임베딩 모델이 없으면 null 반환 (키워드 기반 검색 사용)
+    if (!this.embeddingModel) {
+      return null;
+    }
     try {
       const result = await this.embeddingModel.embedContent(text.substring(0, 8000));
       return result.embedding.values;
     } catch (error) {
-      console.error('Embedding creation failed:', error.message);
-      throw error;
+      console.warn('Embedding creation failed (continuing without embedding):', error.message);
+      return null;
     }
   }
 
@@ -57,13 +66,15 @@ class GeminiAnalyzer {
 
       console.log(`🧠 Analyzing review: ${review.title?.substring(0, 40)}...`);
 
-      // 1. 임베딩 생성
+      // 1. 임베딩 생성 (실패해도 계속 진행)
       const embedding = await this.createEmbedding(review.contentMd);
       
-      // 임베딩 저장 (Firestore에 배열로 저장)
-      await firestore.db.collection('reviews').doc(reviewId).update({
-        embedding: embedding
-      });
+      // 임베딩 저장 (Firestore에 배열로 저장) - 임베딩이 있을 때만
+      if (embedding && firestore.db) {
+        await firestore.db.collection('reviews').doc(reviewId).update({
+          embedding: embedding
+        });
+      }
 
       // 2. Gemini로 구조화된 분석
       const analysis = await this.extractStructuredData(review);
@@ -98,6 +109,10 @@ class GeminiAnalyzer {
    * Gemini로 구조화된 데이터 추출
    */
   async extractStructuredData(review) {
+    const systemInstruction = `당신은 웨딩홀 후기 분석 전문가입니다. 
+블로그 후기에서 웨딩홀 이름, 장단점, 가격 정보를 정확히 추출하세요.
+반드시 JSON 형식으로만 응답하세요.`;
+
     const prompt = `다음은 웨딩홀 후기입니다. JSON 형식으로 정보를 추출해주세요.
 
 제목: ${review.title}
@@ -134,7 +149,10 @@ ${review.contentMd.substring(0, 6000)}
 - 반드시 유효한 JSON만 응답`;
 
     try {
-      const result = await this.model.generateContent(prompt);
+      // SDK 방식: systemInstruction을 프롬프트에 포함
+      const fullPrompt = `${systemInstruction}\n\n${prompt}`;
+      
+      const result = await this.model.generateContent(fullPrompt);
       const response = await result.response;
       let text = response.text();
 
@@ -174,7 +192,7 @@ ${review.contentMd.substring(0, 6000)}
    */
   async searchSimilar(query, limitNum = 20, filters = {}) {
     try {
-      // 쿼리 임베딩
+      // 쿼리 임베딩 (실패해도 계속)
       const queryEmbedding = await this.createEmbedding(query);
 
       // Firestore에서 모든 리뷰 가져오기 (필터 적용)
@@ -183,8 +201,31 @@ ${review.contentMd.substring(0, 6000)}
         limit: 100 // 먼저 100개 가져와서 클라이언트에서 유사도 계산
       });
 
+      // 임베딩이 없으면 키워드 기반 검색으로 대체
+      if (!queryEmbedding) {
+        console.log('⚠️  Embedding unavailable, using keyword-based search');
+        const queryLower = query.toLowerCase();
+        const keywordMatches = reviews.filter(r => {
+          const title = (r.title || '').toLowerCase();
+          const content = (r.contentMd || '').toLowerCase();
+          return title.includes(queryLower) || content.includes(queryLower);
+        });
+        return keywordMatches.slice(0, limitNum);
+      }
+
       // 임베딩이 있는 리뷰만 필터링
       const reviewsWithEmbedding = reviews.filter(r => r.embedding && r.embedding.length > 0);
+
+      if (reviewsWithEmbedding.length === 0) {
+        // 임베딩이 없으면 키워드 기반 검색
+        const queryLower = query.toLowerCase();
+        const keywordMatches = reviews.filter(r => {
+          const title = (r.title || '').toLowerCase();
+          const content = (r.contentMd || '').toLowerCase();
+          return title.includes(queryLower) || content.includes(queryLower);
+        });
+        return keywordMatches.slice(0, limitNum);
+      }
 
       // 유사도 계산
       const withSimilarity = reviewsWithEmbedding.map(review => ({
@@ -283,7 +324,10 @@ ${context}
       const totalReviews = analyses.length;
       
       // 신뢰도 평균 (리뷰에서)
-      const reviewIds = analyses.map(a => a.reviewId);
+      const reviewIds = analyses.map(a => a.reviewId).filter(Boolean);
+      if (reviewIds.length === 0) {
+        return; // 리뷰가 없으면 스킵
+      }
       const reviewsPromises = reviewIds.map(id => firestore.getReview(id));
       const reviews = (await Promise.all(reviewsPromises)).filter(Boolean);
       
