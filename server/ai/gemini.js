@@ -216,28 +216,39 @@ ${review.contentMd.substring(0, 6000)}
         limit: 100 // 먼저 100개 가져와서 클라이언트에서 유사도 계산
       });
 
+      console.log(`🔍 Searching ${reviews.length} reviews for: "${query}"`);
+
       // 임베딩이 없으면 키워드 기반 검색으로 대체
       if (!queryEmbedding) {
         console.log('⚠️  Embedding unavailable, using keyword-based search');
         const queryLower = query.toLowerCase();
         const queryWords = queryLower.split(/\s+/).filter(w => w.length > 1);
         
+        // 키워드가 없으면 모든 리뷰 반환
+        if (queryWords.length === 0) {
+          return reviews.slice(0, limitNum);
+        }
+        
         const keywordMatches = reviews.filter(r => {
           const title = (r.title || '').toLowerCase();
-          const content = (r.contentMd || '').substring(0, 1000).toLowerCase(); // 처음 1000자만
+          const content = (r.contentMd || '').substring(0, 2000).toLowerCase(); // 처음 2000자
           
           // 키워드 중 하나라도 포함되면 매칭
-          return queryWords.some(word => 
+          const matches = queryWords.some(word => 
             title.includes(word) || content.includes(word)
           );
+          
+          return matches;
         });
+        
+        console.log(`   Found ${keywordMatches.length} matches`);
         
         // 매칭 개수로 정렬
         keywordMatches.sort((a, b) => {
           const aTitle = (a.title || '').toLowerCase();
-          const aContent = (a.contentMd || '').substring(0, 1000).toLowerCase();
+          const aContent = (a.contentMd || '').substring(0, 2000).toLowerCase();
           const bTitle = (b.title || '').toLowerCase();
-          const bContent = (b.contentMd || '').substring(0, 1000).toLowerCase();
+          const bContent = (b.contentMd || '').substring(0, 2000).toLowerCase();
           
           const aMatches = queryWords.filter(w => aTitle.includes(w) || aContent.includes(w)).length;
           const bMatches = queryWords.filter(w => bTitle.includes(w) || bContent.includes(w)).length;

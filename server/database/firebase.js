@@ -105,9 +105,7 @@ class FirestoreHelper {
       q = q.where('publishedAt', '<=', admin.firestore.Timestamp.fromDate(new Date(filters.dateTo)));
     }
 
-    // 정렬 (publishedAt 필드가 없을 수 있으므로 조건부)
-    // Firestore는 where와 orderBy가 다른 필드일 때 인덱스 필요
-    // 일단 limit만 적용하고 클라이언트에서 정렬
+    // 정렬 없이 limit만 적용 (인덱스 문제 방지)
     
     // 제한
     if (filters.limit) {
