@@ -17,7 +17,6 @@ export default function HomePage() {
   const [scrapingAll, setScrapingAll] = useState(false);
   const [scrapeProgress, setScrapeProgress] = useState<string>('');
   const [cleaningUp, setCleaningUp] = useState(false);
-  const [updatingImages, setUpdatingImages] = useState(false);
 
   // 웨딩홀 목록 로드
   useEffect(() => {
@@ -90,25 +89,66 @@ export default function HomePage() {
     }
   }
 
-  // 각 웨딩홀의 후기 개수 로드
+  // 각 웨딩홀의 후기 개수 및 최신 후기 3개 로드
   async function loadReviewCounts(halls: WeddingHall[]) {
     const reviewsRef = collection(db, 'reviews');
     
     const hallsWithCounts = await Promise.all(
       halls.map(async (hall) => {
         try {
-          const reviewsQuery = query(reviewsRef, where('hallId', '==', hall.id));
+          const reviewsQuery = query(
+            reviewsRef, 
+            where('hallId', '==', hall.id),
+            orderBy('scrapedAt', 'desc')
+          );
           const reviewsSnapshot = await getDocs(reviewsQuery);
+          
+          // 최신 후기 3개 추출
+          const recentReviews = reviewsSnapshot.docs
+            .slice(0, 3)
+            .map(doc => {
+              const data = doc.data();
+              return {
+                id: doc.id,
+                ...data,
+                scrapedAt: data.scrapedAt || { seconds: Date.now() / 1000, nanoseconds: 0 }
+              };
+            });
+          
           return {
             ...hall,
-            reviewCount: reviewsSnapshot.size
+            reviewCount: reviewsSnapshot.size,
+            recentReviews
           };
         } catch (error) {
-          console.error(`[${hall.name}] 후기 개수 조회 실패:`, error);
-          return {
-            ...hall,
-            reviewCount: 0
-          };
+          console.error(`[${hall.name}] 후기 조회 실패:`, error);
+          // orderBy 실패 시 기본 쿼리 사용
+          try {
+            const basicQuery = query(reviewsRef, where('hallId', '==', hall.id));
+            const basicSnapshot = await getDocs(basicQuery);
+            const recentReviews = basicSnapshot.docs
+              .slice(0, 3)
+              .map(doc => {
+                const data = doc.data();
+                return {
+                  id: doc.id,
+                  ...data,
+                  scrapedAt: data.scrapedAt || { seconds: Date.now() / 1000, nanoseconds: 0 }
+                };
+              });
+            
+            return {
+              ...hall,
+              reviewCount: basicSnapshot.size,
+              recentReviews
+            };
+          } catch (fallbackError) {
+            return {
+              ...hall,
+              reviewCount: 0,
+              recentReviews: []
+            };
+          }
         }
       })
     );
@@ -259,25 +299,6 @@ export default function HomePage() {
             )}
           </button>
 
-          {/* 이미지 업데이트 버튼 */}
-          <button
-            onClick={handleUpdateImages}
-            disabled={updatingImages || loading}
-            className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-lg shadow-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-          >
-            {updatingImages ? (
-              <>
-                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                <span>업데이트 중...</span>
-              </>
-            ) : (
-              <>
-                <span>🖼️</span>
-                <span>이미지 업데이트</span>
-              </>
-            )}
-          </button>
-
           {/* 모든 후기 수집 버튼 */}
           <button
             onClick={handleScrapeAll}
@@ -328,7 +349,11 @@ export default function HomePage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredHalls.map((hall, index) => (
             <div key={hall.id}>
-              <HallCard hall={hall} reviewCount={hall.reviewCount || 0} />
+              <HallCard 
+                hall={hall} 
+                reviewCount={hall.reviewCount || 0}
+                recentReviews={(hall as any).recentReviews || []}
+              />
               
               {/* 4개당 광고 1개 삽입 */}
               {(index + 1) % 4 === 0 && process.env.NEXT_PUBLIC_ADSENSE_CLIENT_ID && (
