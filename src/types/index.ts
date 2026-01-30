@@ -16,6 +16,7 @@ export interface WeddingHall {
   priceRange: string;
   createdAt: FirestoreTimestamp;
   updatedAt: FirestoreTimestamp;
+  reviewCount?: number; // 후기 개수 (선택적)
 }
 
 // 크롤링된 후기

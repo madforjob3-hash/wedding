@@ -67,21 +67,52 @@ export default function HomePage() {
               id: doc.id,
               ...doc.data()
             })) as WeddingHall[];
-            setHalls(newHallsData);
-            setFilteredHalls(newHallsData);
+            
+            // 후기 개수 로드
+            const hallsWithReviews = await loadReviewCounts(newHallsData);
+            setHalls(hallsWithReviews);
+            setFilteredHalls(hallsWithReviews);
           }
         } catch (initError) {
           console.error('초기화 실패:', initError);
         }
       } else {
-        setHalls(hallsData);
-        setFilteredHalls(hallsData);
+        // 후기 개수 로드
+        const hallsWithReviews = await loadReviewCounts(hallsData);
+        setHalls(hallsWithReviews);
+        setFilteredHalls(hallsWithReviews);
       }
     } catch (error) {
       console.error('웨딩홀 로드 실패:', error);
     } finally {
       setLoading(false);
     }
+  }
+
+  // 각 웨딩홀의 후기 개수 로드
+  async function loadReviewCounts(halls: WeddingHall[]) {
+    const reviewsRef = collection(db, 'reviews');
+    
+    const hallsWithCounts = await Promise.all(
+      halls.map(async (hall) => {
+        try {
+          const reviewsQuery = query(reviewsRef, where('hallId', '==', hall.id));
+          const reviewsSnapshot = await getDocs(reviewsQuery);
+          return {
+            ...hall,
+            reviewCount: reviewsSnapshot.size
+          };
+        } catch (error) {
+          console.error(`[${hall.name}] 후기 개수 조회 실패:`, error);
+          return {
+            ...hall,
+            reviewCount: 0
+          };
+        }
+      })
+    );
+
+    return hallsWithCounts;
   }
 
   async function handleScrapeAll() {
@@ -244,7 +275,7 @@ export default function HomePage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredHalls.map((hall, index) => (
             <div key={hall.id}>
-              <HallCard hall={hall} />
+              <HallCard hall={hall} reviewCount={hall.reviewCount || 0} />
               
               {/* 4개당 광고 1개 삽입 */}
               {(index + 1) % 4 === 0 && process.env.NEXT_PUBLIC_ADSENSE_CLIENT_ID && (
