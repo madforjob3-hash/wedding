@@ -1,7 +1,0 @@
-{
-  "/_not-found/page": "app/_not-found/page.js",
-  "/halls/[id]/page": "app/halls/[id]/page.js",
-  "/page": "app/page.js",
-  "/api/init-halls/route": "app/api/init-halls/route.js",
-  "/api/scrape/route": "app/api/scrape/route.js"
-}
