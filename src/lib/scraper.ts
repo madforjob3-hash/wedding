@@ -50,7 +50,9 @@ export async function scrapeNaverBlogs(hallName: string, maxResults = 10): Promi
     
     const response = await fetch(searchUrl, {
       headers: {
-        'User-Agent': getRandomUserAgent()
+        'User-Agent': getRandomUserAgent(),
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7'
       }
     });
 
@@ -63,15 +65,45 @@ export async function scrapeNaverBlogs(hallName: string, maxResults = 10): Promi
     
     const results: Array<{title: string, url: string}> = [];
     
-    // 네이버 블로그 검색 결과 추출
-    $('.total_wrap .total_area').each((_, elem) => {
-      const title = $(elem).find('.title_link').text().trim();
-      const url = $(elem).find('.title_link').attr('href');
+    // 네이버 블로그 검색 결과 추출 (여러 선택자 시도)
+    $('.total_wrap .total_area, .api_subject_bx, .sh_blog_top').each((_, elem) => {
+      const $elem = $(elem);
+      
+      // 제목과 링크 찾기
+      let title = $elem.find('.title_link, .api_txt_lines, .sh_blog_title, a.title').first().text().trim();
+      let url = $elem.find('.title_link, .api_txt_lines, .sh_blog_title, a.title').first().attr('href');
+      
+      // 링크가 없으면 다음 요소로
+      if (!url) return;
+      
+      // 상대 경로를 절대 경로로 변환
+      if (url.startsWith('/')) {
+        url = 'https://search.naver.com' + url;
+      }
       
       if (title && url && results.length < maxResults) {
-        results.push({ title, url });
+        // 중복 제거
+        if (!results.some(r => r.url === url)) {
+          results.push({ title, url });
+        }
       }
     });
+
+    // 결과가 없으면 더 넓은 범위로 검색
+    if (results.length === 0) {
+      $('a[href*="blog.naver.com"]').each((_, elem) => {
+        const $elem = $(elem);
+        const url = $elem.attr('href');
+        const title = $elem.text().trim();
+        
+        if (url && title && title.length > 5 && results.length < maxResults) {
+          const fullUrl = url.startsWith('/') ? 'https://search.naver.com' + url : url;
+          if (!results.some(r => r.url === fullUrl)) {
+            results.push({ title, url: fullUrl });
+          }
+        }
+      });
+    }
 
     await delay(2000); // 2초 대기
     return results;

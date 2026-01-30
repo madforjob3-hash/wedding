@@ -52,8 +52,28 @@ export default function HomePage() {
         ...doc.data()
       })) as WeddingHall[];
 
-      setHalls(hallsData);
-      setFilteredHalls(hallsData);
+      // 데이터가 없으면 초기화 API 호출
+      if (hallsData.length === 0) {
+        console.log('웨딩홀 데이터가 없습니다. 초기화 중...');
+        try {
+          const initResponse = await fetch('/api/init-halls');
+          if (initResponse.ok) {
+            // 다시 로드
+            const newSnapshot = await getDocs(q);
+            const newHallsData = newSnapshot.docs.map(doc => ({
+              id: doc.id,
+              ...doc.data()
+            })) as WeddingHall[];
+            setHalls(newHallsData);
+            setFilteredHalls(newHallsData);
+          }
+        } catch (initError) {
+          console.error('초기화 실패:', initError);
+        }
+      } else {
+        setHalls(hallsData);
+        setFilteredHalls(hallsData);
+      }
     } catch (error) {
       console.error('웨딩홀 로드 실패:', error);
     } finally {
