@@ -14,6 +14,8 @@ export default function HomePage() {
   const [selectedRegion, setSelectedRegion] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [scrapingAll, setScrapingAll] = useState(false);
+  const [scrapeProgress, setScrapeProgress] = useState<string>('');
 
   // 웨딩홀 목록 로드
   useEffect(() => {
@@ -81,6 +83,39 @@ export default function HomePage() {
     }
   }
 
+  async function handleScrapeAll() {
+    if (!confirm('모든 웨딩홀의 후기를 수집하시겠습니까? (2-5분 소요)')) {
+      return;
+    }
+
+    setScrapingAll(true);
+    setScrapeProgress('후기 수집을 시작합니다...');
+
+    try {
+      const response = await fetch('/api/scrape-all');
+      const data = await response.json();
+
+      if (response.ok) {
+        setScrapeProgress(`✅ 완료! ${data.totalReviewsAdded}개 후기가 추가되었습니다.`);
+        
+        // 2초 후 자동 새로고침
+        setTimeout(() => {
+          window.location.reload();
+        }, 2000);
+      } else {
+        setScrapeProgress(`❌ 오류: ${data.error || '알 수 없는 오류'}`);
+      }
+    } catch (error) {
+      console.error('후기 수집 실패:', error);
+      setScrapeProgress('❌ 네트워크 오류가 발생했습니다.');
+    } finally {
+      setTimeout(() => {
+        setScrapingAll(false);
+        setScrapeProgress('');
+      }, 3000);
+    }
+  }
+
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
       {/* 검색 영역 */}
@@ -97,13 +132,45 @@ export default function HomePage() {
         <SearchBar onSearch={setSearchQuery} />
       </div>
 
-      {/* 지역 필터 */}
-      <div className="mb-8">
+      {/* 지역 필터 및 관리 버튼 */}
+      <div className="mb-8 flex flex-col md:flex-row justify-between items-center gap-4">
         <RegionFilter 
           selectedRegion={selectedRegion}
           onRegionChange={setSelectedRegion}
         />
+        
+        {/* 모든 후기 수집 버튼 */}
+        <button
+          onClick={handleScrapeAll}
+          disabled={scrapingAll || loading}
+          className="px-6 py-2 bg-rose-500 hover:bg-rose-600 text-white font-medium rounded-lg shadow-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+        >
+          {scrapingAll ? (
+            <>
+              <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+              <span>수집 중...</span>
+            </>
+          ) : (
+            <>
+              <span>🔄</span>
+              <span>모든 후기 수집</span>
+            </>
+          )}
+        </button>
       </div>
+
+      {/* 진행 상황 표시 */}
+      {scrapeProgress && (
+        <div className={`mb-4 p-4 rounded-lg ${
+          scrapeProgress.includes('✅') 
+            ? 'bg-green-50 text-green-800 border border-green-200' 
+            : scrapeProgress.includes('❌')
+            ? 'bg-red-50 text-red-800 border border-red-200'
+            : 'bg-blue-50 text-blue-800 border border-blue-200'
+        }`}>
+          <p className="font-medium">{scrapeProgress}</p>
+        </div>
+      )}
 
       {/* 웨딩홀 목록 */}
       {loading ? (
