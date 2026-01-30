@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+
+// API 라우트는 동적 라우트로 처리
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 import { collection, addDoc, query, where, getDocs, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { scrapeAllSources } from '@/lib/scraper';
