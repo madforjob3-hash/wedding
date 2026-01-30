@@ -34,13 +34,38 @@ export default function HallDetailPage({ params }: { params: { id: string } }) {
         orderBy('scrapedAt', 'desc'),
         firestoreLimit(50)
       );
-      const reviewsSnapshot = await getDocs(q);
-      const reviewsData = reviewsSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Review[];
+      
+      try {
+        const reviewsSnapshot = await getDocs(q);
+        const reviewsData = reviewsSnapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            ...data,
+            scrapedAt: data.scrapedAt || { seconds: Date.now() / 1000, nanoseconds: 0 }
+          };
+        }) as Review[];
 
-      setReviews(reviewsData);
+        setReviews(reviewsData);
+      } catch (error) {
+        // orderBy 에러 시 기본 쿼리 사용
+        console.warn('정렬 쿼리 실패, 기본 쿼리 사용:', error);
+        const basicQuery = query(
+          reviewsRef,
+          where('hallId', '==', params.id),
+          firestoreLimit(50)
+        );
+        const reviewsSnapshot = await getDocs(basicQuery);
+        const reviewsData = reviewsSnapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            ...data,
+            scrapedAt: data.scrapedAt || { seconds: Date.now() / 1000, nanoseconds: 0 }
+          };
+        }) as Review[];
+        setReviews(reviewsData);
+      }
     } catch (error) {
       console.error('데이터 로드 실패:', error);
     } finally {
