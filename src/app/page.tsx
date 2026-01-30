@@ -222,39 +222,6 @@ export default function HomePage() {
     }
   }
 
-  async function handleUpdateImages() {
-    if (!confirm('모든 웨딩홀의 이미지를 업데이트하시겠습니까? (1-2분 소요)')) {
-      return;
-    }
-
-    setUpdatingImages(true);
-    setScrapeProgress('이미지를 검색하고 업데이트하는 중...');
-
-    try {
-      const response = await fetch('/api/update-hall-images');
-      const data = await response.json();
-
-      if (response.ok) {
-        setScrapeProgress(`✅ 완료! ${data.updated}개 웨딩홀 이미지가 업데이트되었습니다.`);
-        
-        // 2초 후 자동 새로고침
-        setTimeout(() => {
-          window.location.reload();
-        }, 2000);
-      } else {
-        setScrapeProgress(`❌ 오류: ${data.error || '알 수 없는 오류'}`);
-      }
-    } catch (error) {
-      console.error('이미지 업데이트 실패:', error);
-      setScrapeProgress('❌ 네트워크 오류가 발생했습니다.');
-    } finally {
-      setTimeout(() => {
-        setUpdatingImages(false);
-        setScrapeProgress('');
-      }, 3000);
-    }
-  }
-
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
       {/* 검색 영역 */}
