@@ -16,6 +16,7 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [scrapingAll, setScrapingAll] = useState(false);
   const [scrapeProgress, setScrapeProgress] = useState<string>('');
+  const [cleaningUp, setCleaningUp] = useState(false);
 
   // 웨딩홀 목록 로드
   useEffect(() => {
@@ -116,6 +117,39 @@ export default function HomePage() {
     }
   }
 
+  async function handleCleanupDuplicates() {
+    if (!confirm('중복된 웨딩홀을 정리하시겠습니까?')) {
+      return;
+    }
+
+    setCleaningUp(true);
+    setScrapeProgress('중복 웨딩홀을 정리하는 중...');
+
+    try {
+      const response = await fetch('/api/cleanup-duplicates');
+      const data = await response.json();
+
+      if (response.ok) {
+        setScrapeProgress(`✅ 완료! ${data.removed}개 중복 웨딩홀이 삭제되었습니다.`);
+        
+        // 2초 후 자동 새로고침
+        setTimeout(() => {
+          window.location.reload();
+        }, 2000);
+      } else {
+        setScrapeProgress(`❌ 오류: ${data.error || '알 수 없는 오류'}`);
+      }
+    } catch (error) {
+      console.error('중복 정리 실패:', error);
+      setScrapeProgress('❌ 네트워크 오류가 발생했습니다.');
+    } finally {
+      setTimeout(() => {
+        setCleaningUp(false);
+        setScrapeProgress('');
+      }, 3000);
+    }
+  }
+
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
       {/* 검색 영역 */}
@@ -139,24 +173,46 @@ export default function HomePage() {
           onRegionChange={setSelectedRegion}
         />
         
-        {/* 모든 후기 수집 버튼 */}
-        <button
-          onClick={handleScrapeAll}
-          disabled={scrapingAll || loading}
-          className="px-6 py-2 bg-rose-500 hover:bg-rose-600 text-white font-medium rounded-lg shadow-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-        >
-          {scrapingAll ? (
-            <>
-              <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-              <span>수집 중...</span>
-            </>
-          ) : (
-            <>
-              <span>🔄</span>
-              <span>모든 후기 수집</span>
-            </>
-          )}
-        </button>
+        {/* 관리 버튼 그룹 */}
+        <div className="flex gap-2">
+          {/* 중복 정리 버튼 */}
+          <button
+            onClick={handleCleanupDuplicates}
+            disabled={cleaningUp || loading}
+            className="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white font-medium rounded-lg shadow-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          >
+            {cleaningUp ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                <span>정리 중...</span>
+              </>
+            ) : (
+              <>
+                <span>🧹</span>
+                <span>중복 정리</span>
+              </>
+            )}
+          </button>
+
+          {/* 모든 후기 수집 버튼 */}
+          <button
+            onClick={handleScrapeAll}
+            disabled={scrapingAll || loading}
+            className="px-6 py-2 bg-rose-500 hover:bg-rose-600 text-white font-medium rounded-lg shadow-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          >
+            {scrapingAll ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                <span>수집 중...</span>
+              </>
+            ) : (
+              <>
+                <span>🔄</span>
+                <span>모든 후기 수집</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* 진행 상황 표시 */}

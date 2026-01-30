@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 // API 라우트는 동적 라우트로 처리
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, where, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
 // 초기 웨딩홀 데이터 (유명 웨딩홀)
@@ -181,8 +181,31 @@ export async function GET() {
   try {
     const hallsRef = collection(db, 'weddingHalls');
     let addedCount = 0;
+    let skippedCount = 0;
 
     for (const hall of INITIAL_HALLS) {
+      // 중복 체크: 이름과 주소로 확인
+      const nameQuery = query(hallsRef, where('name', '==', hall.name));
+      const addressQuery = query(hallsRef, where('address', '==', hall.address));
+      
+      const [nameSnapshot, addressSnapshot] = await Promise.all([
+        getDocs(nameQuery),
+        getDocs(addressQuery)
+      ]);
+
+      // 이름과 주소가 모두 일치하는 경우 중복으로 간주
+      const isDuplicate = nameSnapshot.docs.some(doc => {
+        const data = doc.data();
+        return data.address === hall.address;
+      });
+
+      if (isDuplicate) {
+        console.log(`⏭️  중복 건너뛰기: ${hall.name} (${hall.address})`);
+        skippedCount++;
+        continue;
+      }
+
+      // 새 웨딩홀 추가
       await addDoc(hallsRef, {
         ...hall,
         createdAt: serverTimestamp(),
@@ -193,7 +216,8 @@ export async function GET() {
 
     return NextResponse.json({
       message: '웨딩홀 데이터 초기화 완료',
-      count: addedCount
+      added: addedCount,
+      skipped: skippedCount
     });
 
   } catch (error) {
