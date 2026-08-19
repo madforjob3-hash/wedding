@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎬</text></svg>">
+<title>캡처 결과 - 유튜브 웹툰 캡처</title>
+<style>
+  :root {
+    --bg: #0e0f13;
+    --card: #171922;
+    --line: #262a38;
+    --text: #e8eaf0;
+    --muted: #8b90a3;
+    --accent: #ff4d6d;
+    --header-h: 52px;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
+                 "Pretendard", "Noto Sans KR", system-ui, sans-serif;
+    padding-top: calc(var(--header-h) + env(safe-area-inset-top));
+  }
+
+  /* ---- 상단 헤더 ---- */
+  header {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+    height: calc(var(--header-h) + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) 14px 0;
+    display: flex; align-items: center; gap: 10px;
+    background: rgba(14,15,19,.86);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--line);
+  }
+  header a.back {
+    color: var(--text); text-decoration: none;
+    font-size: 14px; font-weight: 600;
+    white-space: nowrap;
+  }
+  header a.back:hover { color: var(--accent); }
+  .badges { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+  .badge {
+    font-size: 11px; font-weight: 600;
+    color: var(--muted);
+    background: #1f2230; border: 1px solid var(--line);
+    border-radius: 999px; padding: 5px 10px;
+    white-space: nowrap;
+  }
+  .badge.count { color: var(--accent); border-color: rgba(255,77,109,.35); }
+
+  /* ---- 본문 (웹툰 스트립) ---- */
+  .strip { max-width: 720px; margin: 0 auto; padding: 14px 0 80px; }
+
+  .cut { margin-bottom: 18px; }
+  .frame {
+    position: relative;
+    background: #000;
+    border-radius: 12px;
+    overflow: hidden;
+    line-height: 0;
+  }
+  .frame img {
+    width: 100%; height: auto; display: block;
+    background: #000;
+  }
+  .time {
+    position: absolute; top: 10px; left: 10px;
+    background: rgba(0,0,0,.66);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    color: #fff;
+    font-size: 12px; font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    padding: 6px 9px;
+    border-radius: 6px;
+    letter-spacing: .02em;
+  }
+
+  .caption {
+    display: flex; gap: 9px;
+    margin: 10px 4px 0;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 13px 14px;
+    font-size: 15px;
+    line-height: 1.62;
+    color: #dfe2ec;
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+  }
+  .caption .bubble {
+    flex: 0 0 auto; width: 16px; height: 16px;
+    margin-top: 3px;
+    opacity: .55;
+  }
+
+  .end {
+    text-align: center; color: var(--muted);
+    font-size: 13px; padding: 30px 20px 10px; line-height: 1.7;
+  }
+  .end a { color: var(--accent); text-decoration: none; font-weight: 600; }
+  .msg { text-align: center; color: var(--muted); padding: 60px 20px; font-size: 14px; line-height: 1.7; }
+
+  /* ---- 맨 위로 버튼 ---- */
+  #top {
+    position: fixed; right: 16px;
+    bottom: calc(16px + env(safe-area-inset-bottom));
+    width: 42px; height: 42px; border-radius: 50%;
+    background: rgba(31,34,48,.92);
+    border: 1px solid var(--line);
+    color: var(--text); font-size: 17px; line-height: 1;
+    cursor: pointer; display: none;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  #top.show { display: block; }
+
+  @media (min-width: 760px) {
+    .strip { padding: 22px 0 90px; }
+    .cut { margin-bottom: 24px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <a class="back" href="/">← 새로 만들기</a>
+  <div class="badges" id="badges"></div>
+</header>
+
+<div class="strip" id="strip">
+  <div class="msg" id="msg">불러오는 중...</div>
+</div>
+
+<button id="top" title="맨 위로">↑</button>
+
+<script>
+(function () {
+  var jobId = {{ job_id|tojson }};
+  var strip = document.getElementById('strip');
+  var msg = document.getElementById('msg');
+  var badges = document.getElementById('badges');
+
+  var BUBBLE = '<svg class="bubble" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">' +
+    '<path d="M8 1.5c-3.9 0-7 2.4-7 5.4 0 1.7 1 3.2 2.6 4.2-.1.8-.5 1.9-1.3 2.8 1.5-.2 2.8-.9 3.7-1.6.6.1 1.3.2 2 .2 3.9 0 7-2.4 7-5.6S11.9 1.5 8 1.5z"/></svg>';
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  fetch('/jobs/' + jobId + '/manifest.json')
+    .then(function (r) {
+      if (!r.ok) throw new Error('manifest 없음');
+      return r.json();
+    })
+    .then(function (data) {
+      render(data);
+    })
+    .catch(function () {
+      msg.innerHTML = '결과를 불러오지 못했습니다.<br>캡처가 아직 끝나지 않았거나 결과가 삭제되었을 수 있습니다.';
+    });
+
+  function render(data) {
+    var frames = data.frames || [];
+
+    badges.innerHTML =
+      '<span class="badge">' + esc(data.mode_label || data.mode || '') + '</span>' +
+      '<span class="badge count">' + frames.length + '컷</span>';
+
+    if (!frames.length) {
+      msg.textContent = '캡처된 컷이 없습니다.';
+      return;
+    }
+
+    var html = frames.map(function (f) {
+      var cap = (f.caption || '').trim();
+      return '' +
+        '<div class="cut">' +
+          '<div class="frame">' +
+            '<img src="/jobs/' + jobId + '/images/' + encodeURIComponent(f.image) + '" ' +
+                 'alt="' + esc(f.time_label) + ' 장면" loading="lazy" decoding="async">' +
+            '<span class="time">' + esc(f.time_label) + '</span>' +
+          '</div>' +
+          (cap ? '<div class="caption">' + BUBBLE + '<span>' + esc(cap) + '</span></div>' : '') +
+        '</div>';
+    }).join('');
+
+    html += '<div class="end">— 끝 —<br><a href="/">새로 만들기</a></div>';
+    strip.innerHTML = html;
+  }
+
+  // 맨 위로 버튼
+  var topBtn = document.getElementById('top');
+  window.addEventListener('scroll', function () {
+    topBtn.classList.toggle('show', window.scrollY > 600);
+  }, { passive: true });
+  topBtn.addEventListener('click', function () {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+})();
+</script>
+</body>
+</html>
