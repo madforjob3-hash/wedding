@@ -9,9 +9,11 @@ app.py - 유튜브 웹툰 캡처 로컬 웹 서버 (Flask)
 자세한 내용은 README.md의 경고 문구 참고.
 """
 
+import argparse
 import os
 import re
 import shutil
+import socket
 import threading
 import uuid
 
@@ -159,13 +161,58 @@ def delete_job(job_id):
     return jsonify({"ok": True})
 
 
-if __name__ == "__main__":
+def lan_ip():
+    """같은 와이파이의 다른 기기(아이폰 등)가 접속할 때 쓸 IP를 알아낸다."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        # 실제로 패킷을 보내진 않는다. 어느 인터페이스가 쓰이는지만 확인한다.
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        s.close()
+
+
+def main():
+    p = argparse.ArgumentParser(description="유튜브 웹툰 캡처 로컬 서버")
+    p.add_argument("--lan", action="store_true",
+                   help="같은 와이파이의 다른 기기(아이폰 등)에서 접속할 수 있게 개방")
+    p.add_argument("--host", default=None, help="바인딩할 주소 (기본: 127.0.0.1)")
+    p.add_argument("--port", type=int, default=5000,
+                   help="포트 (기본: 5000. 맥에서 AirPlay와 충돌하면 5050 등으로 변경)")
+    args = p.parse_args()
+
+    host = args.host or ("0.0.0.0" if args.lan else "127.0.0.1")
+    exposed = host not in ("127.0.0.1", "localhost")
+
     os.makedirs(JOBS_DIR, exist_ok=True)
-    print("=" * 60)
+
+    print("=" * 62)
     print(" 유튜브 웹툰 캡처 - 로컬 프로토타입")
-    print(" http://127.0.0.1:5000 에서 접속하세요 (Ctrl+C로 종료)")
-    print(" * 개인 검증용입니다. 결과물을 배포/공유하지 마세요.")
-    print("=" * 60)
-    # 개인용 로컬 실행이므로 127.0.0.1에만 바인딩한다.
-    # 백그라운드 스레드가 죽지 않도록 reloader는 끈다.
-    app.run(host="127.0.0.1", port=5000, debug=True, use_reloader=False)
+    print("")
+    print("  이 맥에서      : http://127.0.0.1:%d" % args.port)
+    if exposed:
+        ip = lan_ip()
+        if ip:
+            print("  같은 와이파이에서: http://%s:%d  <- 아이폰에서 이 주소" % (ip, args.port))
+        else:
+            print("  같은 와이파이에서: IP를 찾지 못했습니다.")
+            print("                    시스템 설정 > Wi-Fi > 세부사항에서 IP 주소를 확인하세요.")
+        print("")
+        print("  [주의] 지금 이 서버는 같은 네트워크의 모든 기기에 열려 있습니다.")
+        print("         카페/회사 같은 공용 와이파이에서는 켜지 마세요.")
+        print("         테스트가 끝나면 Ctrl+C로 반드시 종료하세요.")
+    print("")
+    print(" * 개인 검증용입니다. 캡처 결과를 배포/공유하지 마세요.  (종료: Ctrl+C)")
+    print("=" * 62)
+
+    # 외부에 열 때는 debug를 끈다.
+    # Werkzeug 디버거가 네트워크에 노출되면 원격 코드 실행 위험이 있다.
+    # 백그라운드 캡처 스레드가 죽지 않도록 reloader도 끈다.
+    app.run(host=host, port=args.port, debug=not exposed,
+            use_reloader=False, threaded=True)
+
+
+if __name__ == "__main__":
+    main()
