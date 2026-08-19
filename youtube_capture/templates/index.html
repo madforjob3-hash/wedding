@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎬</text></svg>">
+<title>유튜브 웹툰 캡처</title>
+<style>
+  :root {
+    --bg: #0e0f13;
+    --card: #171922;
+    --card-2: #1f2230;
+    --line: #2a2e3d;
+    --text: #e8eaf0;
+    --muted: #8b90a3;
+    --accent: #ff4d6d;
+    --accent-dim: #7a2637;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
+                 "Pretendard", "Noto Sans KR", system-ui, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 16px calc(24px + env(safe-area-inset-bottom));
+  }
+  .wrap { width: 100%; max-width: 520px; }
+  h1 {
+    font-size: 22px; font-weight: 700; margin: 0 0 6px;
+    letter-spacing: -0.02em;
+  }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 20px; line-height: 1.5; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 20px;
+  }
+  label.field {
+    display: block; font-size: 12px; color: var(--muted);
+    margin-bottom: 8px; font-weight: 600; letter-spacing: 0.02em;
+  }
+  input[type=url] {
+    width: 100%;
+    background: var(--card-2);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    color: var(--text);
+    font-size: 15px;
+    padding: 13px 14px;
+    outline: none;
+    transition: border-color .15s;
+  }
+  input[type=url]:focus { border-color: var(--accent); }
+  input[type=url]::placeholder { color: #5c6072; }
+
+  .modes { display: grid; gap: 8px; margin-top: 18px; }
+  .mode {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--card-2);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 13px 14px;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--text);
+    text-align: left;
+    transition: border-color .15s, background .15s;
+  }
+  .mode:hover { border-color: #3b4157; }
+  .mode .dot {
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 2px solid #4b5169; flex: 0 0 auto;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .mode.on { border-color: var(--accent); background: rgba(255,77,109,.08); }
+  .mode.on .dot { border-color: var(--accent); box-shadow: inset 0 0 0 3px var(--accent); }
+
+  button.go {
+    width: 100%; margin-top: 18px;
+    background: var(--accent); color: #fff;
+    border: 0; border-radius: 10px;
+    font-size: 15px; font-weight: 700;
+    padding: 15px; cursor: pointer;
+    transition: opacity .15s;
+  }
+  button.go:hover:not(:disabled) { opacity: .9; }
+  button.go:disabled { background: var(--accent-dim); color: #c9a2ac; cursor: not-allowed; }
+
+  #panel { margin-top: 16px; display: none; }
+  #panel.show { display: block; }
+  .status {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--card-2); border: 1px solid var(--line);
+    border-radius: 10px; padding: 14px;
+    font-size: 14px; color: var(--text);
+  }
+  .spinner {
+    width: 16px; height: 16px; flex: 0 0 auto;
+    border: 2px solid #3b4157; border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .status.err {
+    border-color: #5a2530; background: rgba(255,77,109,.08);
+    color: #ffb3c0; white-space: pre-wrap; word-break: break-word;
+    align-items: flex-start; line-height: 1.5;
+  }
+  .status.err .spinner { display: none; }
+  .hint {
+    margin-top: 14px; font-size: 11px; color: #6b7085;
+    line-height: 1.6; text-align: center;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>유튜브 웹툰 캡처</h1>
+  <p class="sub">링크를 넣으면 주요 장면을 캡처하고 자막을 붙여<br>세로 스크롤 웹툰처럼 보여줍니다.</p>
+
+  <div class="card">
+    <label class="field" for="url">유튜브 링크</label>
+    <input id="url" type="url" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off" spellcheck="false">
+
+    <div class="modes" id="modes">
+      {% for m in modes %}
+      <button type="button" class="mode{% if m.key == default_mode %} on{% endif %}" data-mode="{{ m.key }}">
+        <span class="dot"></span><span>{{ m.label }}</span>
+      </button>
+      {% endfor %}
+    </div>
+
+    <button class="go" id="go">캡처 시작</button>
+
+    <div id="panel">
+      <div class="status" id="status"><span class="spinner"></span><span id="statusText">준비 중...</span></div>
+    </div>
+  </div>
+
+  <p class="hint">개인 검증용 로컬 프로토타입입니다.<br>캡처 결과를 배포하거나 공유하지 마세요.</p>
+</div>
+
+<script>
+(function () {
+  var mode = {{ default_mode|tojson }};
+  var urlInput = document.getElementById('url');
+  var goBtn = document.getElementById('go');
+  var panel = document.getElementById('panel');
+  var statusBox = document.getElementById('status');
+  var statusText = document.getElementById('statusText');
+  var timer = null;
+
+  // 모드 선택
+  document.getElementById('modes').addEventListener('click', function (e) {
+    var btn = e.target.closest('.mode');
+    if (!btn) return;
+    document.querySelectorAll('.mode').forEach(function (b) { b.classList.remove('on'); });
+    btn.classList.add('on');
+    mode = btn.dataset.mode;
+  });
+
+  function showStatus(text, isError) {
+    panel.classList.add('show');
+    statusBox.classList.toggle('err', !!isError);
+    statusText.textContent = text;
+  }
+
+  function fail(msg) {
+    if (timer) { clearInterval(timer); timer = null; }
+    showStatus(msg, true);
+    goBtn.disabled = false;
+    goBtn.textContent = '캡처 시작';
+  }
+
+  function poll(jobId) {
+    timer = setInterval(function () {
+      fetch('/status/' + jobId)
+        .then(function (r) { return r.json(); })
+        .then(function (s) {
+          if (s.error && !s.status) { fail(s.error); return; }
+          if (s.status === 'done') {
+            clearInterval(timer); timer = null;
+            showStatus('완료! 뷰어로 이동합니다...', false);
+            location.href = '/view/' + jobId;
+          } else if (s.status === 'error') {
+            fail(s.error || '알 수 없는 오류가 발생했습니다.');
+          } else {
+            showStatus(s.progress || '처리 중...', false);
+          }
+        })
+        .catch(function () { /* 일시적인 네트워크 오류는 다음 폴링에서 회복 */ });
+    }, 1200);
+  }
+
+  function start() {
+    var url = urlInput.value.trim();
+    if (!url) { fail('유튜브 링크를 입력해 주세요.'); return; }
+
+    goBtn.disabled = true;
+    goBtn.textContent = '캡처 중...';
+    showStatus('작업 요청 중...', false);
+
+    fetch('/capture', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: url, mode: mode })
+    })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+      .then(function (res) {
+        if (!res.ok || !res.data.job_id) {
+          fail(res.data.error || '요청에 실패했습니다.');
+          return;
+        }
+        showStatus('작업 준비 중...', false);
+        poll(res.data.job_id);
+      })
+      .catch(function () { fail('서버에 연결할 수 없습니다. app.py가 실행 중인지 확인하세요.'); });
+  }
+
+  goBtn.addEventListener('click', start);
+  urlInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !goBtn.disabled) start();
+  });
+})();
+</script>
+</body>
+</html>

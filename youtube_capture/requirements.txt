@@ -1,0 +1,8 @@
+# 유튜브 웹툰 캡처 - 파이썬 의존성
+# 설치: pip3 install --break-system-packages -r requirements.txt
+#
+# 주의: ffmpeg / ffprobe 는 pip 패키지가 아닙니다.
+#       별도로 `brew install ffmpeg` 해야 합니다.
+
+Flask>=3.0.0
+yt-dlp>=2024.1.1
