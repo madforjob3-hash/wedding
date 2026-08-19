@@ -141,13 +141,143 @@ python3 app.py --lan
 
 ```bash
 python3 app.py --help          # 옵션 전체 보기
+python3 app.py                 # 이 맥에서만
+python3 app.py --lan           # 같은 와이파이의 다른 기기에서도
+python3 app.py --serve         # 상시 운영 (waitress + 로그인 필수)
+python3 app.py --set-password  # 로그인 비밀번호 설정/변경
 python3 app.py --port 5050     # AirPlay와 포트가 충돌할 때
-python3 app.py --lan --port 5050
 ```
 
 ---
 
-## Vercel 같은 곳에 배포할 수 있나요?
+## 맥미니를 상시 서버로 쓰고 밖에서 접속하기
+
+맥미니에서 서버를 계속 돌리고, Cloudflare Tunnel로 공개 https 주소를 붙이는
+방법입니다. **공유기 포트포워딩도, 고정 IP도 필요 없습니다.** `cloudflared`가
+맥미니 안에서 바깥으로 연결을 맺기 때문에, 앱은 계속 `127.0.0.1`에만
+바인딩된 채로 있습니다.
+
+```
+아이폰 ──https──> Cloudflare ──터널──> 맥미니의 cloudflared ──> 127.0.0.1:5000
+```
+
+### 1단계. 비밀번호 설정 (필수)
+
+공개 주소로 여는 이상 로그인 없이 두면 안 됩니다. 설정하지 않으면 `--serve`가
+아예 실행을 거부합니다.
+
+```bash
+cd youtube_capture
+python3 app.py --set-password
+```
+
+`.auth.json`에 **scrypt 해시만** 저장되고 비밀번호 원문은 저장되지 않습니다.
+이 파일은 `.gitignore`에 들어 있으니 절대 커밋하지 마세요.
+
+### 2단계. 운영 모드로 켜보기
+
+```bash
+pip3 install --break-system-packages -r requirements.txt   # waitress 포함
+python3 app.py --serve
+```
+
+`--serve`는 개발 서버 대신 **waitress**로 띄우고 로그인을 강제합니다.
+먼저 맥에서 `http://127.0.0.1:5000`으로 들어가 로그인이 되는지 확인하세요.
+
+### 3단계. Cloudflare Tunnel 연결
+
+Cloudflare 계정과, 그 계정에 등록된 도메인이 하나 필요합니다.
+
+```bash
+brew install cloudflared
+
+cloudflared tunnel login                      # 브라우저에서 도메인 선택
+cloudflared tunnel create youtube-capture     # TUNNEL_ID 출력됨
+
+# 설정 파일 작성 (예시 파일 참고)
+cp deploy/cloudflared-config.example.yml ~/.cloudflared/config.yml
+# ~/.cloudflared/config.yml 에서 TUNNEL_ID / 도메인 / 사용자명을 본인 것으로 수정
+
+# 도메인을 터널에 연결
+cloudflared tunnel route dns youtube-capture capture.내도메인.com
+
+# 실행해 보기
+cloudflared tunnel run youtube-capture
+```
+
+이제 아이폰에서 `https://capture.내도메인.com` 으로 접속하면 로그인 화면이
+뜹니다. 잘 되면 터널도 상시 실행으로 등록합니다:
+
+```bash
+sudo cloudflared service install
+```
+
+### 4단계. 재부팅해도 자동 실행 (launchd)
+
+```bash
+# 경로를 실제 값으로 채워서 설치
+sed -e "s|__DIR__|$(pwd)|g" -e "s|__PYTHON__|$(which python3)|g" \
+    deploy/com.local.youtube-capture.plist \
+    > ~/Library/LaunchAgents/com.local.youtube-capture.plist
+
+launchctl load -w ~/Library/LaunchAgents/com.local.youtube-capture.plist
+
+# 확인
+launchctl list | grep youtube-capture
+tail -f jobs/server.log
+```
+
+내리거나 다시 올릴 때:
+
+```bash
+launchctl unload ~/Library/LaunchAgents/com.local.youtube-capture.plist
+launchctl load -w ~/Library/LaunchAgents/com.local.youtube-capture.plist
+```
+
+> **launchd는 로그인 셸의 PATH를 물려받지 않습니다.** plist 안에 PATH를 직접
+> 박아둔 이유가 이것입니다. 이게 없으면 ffmpeg와 yt-dlp를 못 찾아서
+> "필수 프로그램이 설치되어 있지 않습니다" 오류가 납니다.
+> 인텔 맥이면 Homebrew 경로가 `/usr/local/bin`입니다.
+
+### 5단계. 맥미니가 잠들지 않게
+
+절전으로 들어가면 서버도 같이 멈춥니다.
+
+```bash
+sudo pmset -a sleep 0 disksleep 0
+pmset -g | grep -E " sleep| disksleep"   # 확인
+```
+
+### 운영하면서 알아둘 것
+
+- **로그인 시도 제한**: 같은 IP에서 5회 틀리면 15분 잠깁니다. 공개 주소는
+  스캐너 봇이 `/login`을 계속 두드리므로 이건 있어야 합니다.
+- **동시 캡처 2개 제한**: 요청이 몰리면 맥미니가 멈추므로 상한을 걸어뒀습니다.
+  `app.py`의 `MAX_CONCURRENT_JOBS`에서 조절합니다.
+- **세션은 14일** 유지됩니다. 아이폰에서 매번 로그인하지 않아도 됩니다.
+- **로그아웃**은 `/logout`으로 접속하면 됩니다.
+- **비밀번호를 잊었으면** 맥미니에서 `python3 app.py --set-password`로 다시
+  설정하면 됩니다.
+- **결과물이 쌓입니다.** `jobs/` 폴더를 가끔 비우세요. 안 그러면 디스크가 찹니다.
+- **터널을 끄면** 외부 접속이 즉시 끊깁니다. 잠시 닫고 싶을 때 가장 확실한
+  방법입니다.
+
+### ⚠️ 공개 주소로 열기 전에 다시 한 번
+
+주소를 아는 사람은 누구나 이 서버로 영상을 받게 됩니다. 그러면:
+
+- **모든 유튜브 요청이 집 IP에서 나갑니다.** 유튜브가 그 IP를 봇으로 판정하면
+  `Sign in to confirm you're not a bot` 오류가 뜨면서 **본인도 못 쓰게 됩니다.**
+- 개인 도구가 사실상 공개 유튜브 다운로드 서비스가 되고, 맨 위에 적은
+  이용약관·저작권 문제가 그때부터 현실적인 위험이 됩니다.
+
+**비밀번호를 남에게 알려주지 말고, 주소도 공유하지 마세요.** 본인 기기에서만
+쓸 거라면 Cloudflare Tunnel 대신 Tailscale 같은 사설망을 쓰는 쪽이 더
+안전합니다 (외부에 아무것도 노출되지 않습니다).
+
+---
+
+## Vercel 같은 곳에는 배포할 수 없나요?
 
 **할 수 없습니다.** 서버리스 환경과 이 앱의 구조가 근본적으로 맞지 않습니다.
 
@@ -159,10 +289,8 @@ python3 app.py --lan --port 5050
   중단되고, 상태 폴링은 `jobs` 딕셔너리가 빈 다른 인스턴스로 갑니다.
 - **실행 시간 제한.** 무료 플랜은 10초입니다. 캡처는 보통 1~3분 걸립니다.
 
-제대로 하려면 영상 처리 워커 + 오브젝트 스토리지 + 작업 큐로 아키텍처를 다시
-짜야 합니다. 그리고 그렇게 만들어 공개 주소로 띄우는 순간, 맨 위 경고에 적은
-저작권·이용약관 문제가 훨씬 현실적인 위험이 됩니다. 다른 기기에서 보고 싶을
-뿐이라면 위의 `--lan` 방식을 쓰세요.
+그래서 위처럼 **맥미니를 서버로 쓰고 터널만 붙이는 방식**을 씁니다. 영상 처리는
+맥미니가 하고, Cloudflare는 주소와 https만 담당합니다.
 
 ---
 
@@ -202,17 +330,23 @@ CLI로 만든 결과도 `jobs/` 안에 들어가므로,
 
 ```
 youtube_capture/
-├── app.py                 # Flask 서버 (라우팅, 백그라운드 스레드 작업)
+├── app.py                 # Flask 서버 (라우팅, 로그인, 백그라운드 스레드 작업)
+├── auth.py                # 비밀번호 해시 + 로그인 시도 제한 (공개 운영용)
 ├── capture_core.py        # 핵심 로직 (다운로드/장면감지/캡처/자막매칭)
 ├── youtube_capture.py     # CLI 버전
 ├── templates/
 │   ├── index.html         # 입력 화면
-│   └── viewer.html        # 웹툰형 스크롤 뷰어
+│   ├── viewer.html        # 웹툰형 스크롤 뷰어
+│   └── login.html         # 로그인 화면
+├── deploy/
+│   ├── com.local.youtube-capture.plist   # launchd 자동 실행 설정
+│   └── cloudflared-config.example.yml    # Cloudflare Tunnel 설정 예시
 ├── jobs/                  # 작업 결과 (git에 올라가지 않음)
 │   └── <job_id>/
 │       ├── images/0000.jpg ...
 │       ├── captions.ko.vtt
 │       └── manifest.json
+├── .auth.json             # 비밀번호 해시 + 세션 키 (git 제외, 커밋 금지)
 ├── requirements.txt
 └── README.md
 ```

@@ -2,6 +2,9 @@
 jobs/*
 !jobs/.gitkeep
 
+# 비밀번호 해시 + 세션 서명키 (절대 커밋 금지)
+.auth.json
+
 # 파이썬
 __pycache__/
 *.py[cod]

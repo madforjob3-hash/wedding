@@ -1,0 +1,19 @@
+# Cloudflare Tunnel 설정 예시
+#
+# 두는 위치: ~/.cloudflared/config.yml
+#
+# TUNNEL_ID 와 도메인은 본인 것으로 바꾼다.
+# `cloudflared tunnel create youtube-capture` 를 실행하면 TUNNEL_ID 와
+# 자격증명 json 경로가 출력된다.
+
+tunnel: TUNNEL_ID
+credentials-file: /Users/__USER__/.cloudflared/TUNNEL_ID.json
+
+ingress:
+  # 공개 주소 -> 맥미니 안에서 돌고 있는 캡처 서버
+  # 앱은 127.0.0.1에만 바인딩되어 있으므로, 이 터널을 끄면 외부 접속도 끊긴다.
+  - hostname: capture.내도메인.com
+    service: http://127.0.0.1:5000
+
+  # 위에 걸리지 않는 요청은 전부 404 (필수 규칙)
+  - service: http_status:404

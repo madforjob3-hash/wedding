@@ -6,3 +6,7 @@
 
 Flask>=3.0.0
 yt-dlp>=2024.1.1
+
+# 상시 운영(--serve)용 WSGI 서버.
+# Flask 개발 서버는 상시 운영에 쓰면 안 된다.
+waitress>=3.0.0

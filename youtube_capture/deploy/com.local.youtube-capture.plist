@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  맥미니 재부팅 후에도 캡처 서버가 자동으로 뜨게 하는 launchd 설정.
+
+  설치:
+    1) __DIR__ 를 실제 경로로, __PYTHON__ 을 python3 경로로 바꾼다
+       (아래 README의 sed 명령을 쓰면 자동으로 채워진다)
+    2) ~/Library/LaunchAgents/ 에 복사
+    3) launchctl load -w ~/Library/LaunchAgents/com.local.youtube-capture.plist
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.local.youtube-capture</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__PYTHON__</string>
+        <string>__DIR__/app.py</string>
+        <string>--serve</string>
+        <string>--port</string>
+        <string>5000</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__DIR__</string>
+
+    <!--
+      launchd는 로그인 셸의 PATH를 물려받지 않는다.
+      이걸 지정하지 않으면 ffmpeg와 yt-dlp를 찾지 못해서
+      "필수 프로그램이 설치되어 있지 않습니다" 오류가 난다.
+      (인텔 맥은 Homebrew 경로가 /usr/local/bin 이다)
+    -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- 죽으면 다시 띄운다 -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- 재시작이 너무 잦아지지 않게 최소 간격을 둔다 -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>__DIR__/jobs/server.log</string>
+    <key>StandardErrorPath</key>
+    <string>__DIR__/jobs/server.error.log</string>
+</dict>
+</plist>
